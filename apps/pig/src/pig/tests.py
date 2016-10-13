@@ -32,11 +32,16 @@ from hadoop import pseudo_hdfs4
 from hadoop.pseudo_hdfs4 import is_live_cluster
 from liboozie.oozie_api_tests import OozieServerProvider
 from liboozie.conf import SECURITY_ENABLED
+
 from oozie.tests import OozieBase
 
 from pig.models import create_or_update_script, PigScript
 from pig.api import OozieApi, get
 
+try:
+  from security.conf import HIVE_V1
+except ImportError, e:
+  HIVE_V1 = None
 
 class TestPigBase(object):
   SCRIPT_ATTRS = {
@@ -63,6 +68,10 @@ def create_script(user, xattrs=None):
   if xattrs is not None:
     attrs.update(xattrs)
   return create_or_update_script(**attrs)
+
+
+def is_security_enabled():
+  return HIVE_V1 is not None
 
 
 class TestMock(TestPigBase):
@@ -92,7 +101,12 @@ class TestMock(TestPigBase):
 
     start_link = wf.start.get_link()
     pig_action = start_link.child
-    assert_equal([], pig_action.credentials)
+
+    expected_credentials = []
+    if is_security_enabled():
+      expected_credentials = [{u'name': u'hcat', u'value': True}]
+
+    assert_equal(expected_credentials, pig_action.credentials)
 
   def test_check_automated_hcatalogs_credentials(self):
     reset = SECURITY_ENABLED.set_for_testing(True)

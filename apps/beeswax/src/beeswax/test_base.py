@@ -29,6 +29,7 @@ from nose.tools import assert_true, assert_false
 from django.core.urlresolvers import reverse
 from django.contrib.auth.models import User
 
+from desktop.lib.conf import BoundConfig
 from desktop.lib.django_test_util import make_logged_in_client
 from desktop.lib.paths import get_run_root
 from desktop.lib.python_util import find_unused_port
@@ -39,12 +40,19 @@ from hadoop import cluster, pseudo_hdfs4
 from hadoop.pseudo_hdfs4 import is_live_cluster, get_db_prefix
 
 import beeswax.conf
-
 from beeswax.server.dbms import get_query_server_config
 from beeswax.server import dbms
 
+try:
+  from security.conf import HIVE_V1
+except ImportError, e:
+  HIVE_V1 = None
+
 
 HIVE_SERVER_TEST_PORT = find_unused_port()
+HIVE_SENTRY_SUPERUSER = 'hive'
+HIVE_SENTRY_USER = 'systest'
+
 _INITIALIZED = False
 _SHARED_HIVE_SERVER_PROCESS = None
 _SHARED_HIVE_SERVER = None
@@ -58,6 +66,17 @@ LOG = logging.getLogger(__name__)
 
 def is_hive_on_spark():
   return os.environ.get('ENABLE_HIVE_ON_SPARK', 'false').lower() == 'true'
+
+
+def is_hive_with_sentry():
+  return HIVE_V1 is not None and type(HIVE_V1) == BoundConfig and HIVE_V1.get()
+
+
+def get_test_username():
+  if is_hive_with_sentry():
+    return HIVE_SENTRY_SUPERUSER
+  else:
+    return 'test'
 
 
 def get_available_execution_engines():
@@ -121,8 +140,8 @@ def get_shared_beeswax_server(db_name='default'):
       started = False
       sleep = 1
 
-      make_logged_in_client()
-      user = User.objects.get(username='test')
+      make_logged_in_client(username=get_test_username())
+      user = User.objects.get(username=get_test_username())
       query_server = get_query_server_config()
       db = dbms.get(user, query_server)
 
@@ -366,10 +385,11 @@ class BeeswaxSampleProvider(object):
     cls.cluster, shutdown = get_shared_beeswax_server(cls.db_name)
     cls.set_execution_engine()
 
-    cls.client = make_logged_in_client(username='test', is_superuser=False)
-    add_to_group('test', 'test')
-    grant_access('test', 'test', 'beeswax')
-    grant_access('test', 'test', 'metastore')
+    cls.client = make_logged_in_client(username=get_test_username(), is_superuser=False)
+    add_to_group(get_test_username(), 'test')
+    add_to_group(get_test_username(), 'default')
+    grant_access(get_test_username(), 'test', 'beeswax')
+    grant_access(get_test_username(), 'test', 'metastore')
 
     # Weird redirection to avoid binding nonsense.
     cls.shutdown = [ shutdown ]
@@ -380,8 +400,8 @@ class BeeswaxSampleProvider(object):
     if is_live_cluster():
       # Delete test DB and tables
       query_server = get_query_server_config()
-      client = make_logged_in_client()
-      user = User.objects.get(username='test')
+      client = make_logged_in_client(username=get_test_username())
+      user = User.objects.get(username=get_test_username())
 
       db = dbms.get(user, query_server)
 
@@ -412,7 +432,7 @@ class BeeswaxSampleProvider(object):
     query_server = get_query_server_config()
 
     if query_server['server_name'] == 'beeswax' and is_hive_on_spark():
-      user = User.objects.get(username='test')
+      user = User.objects.get(username=get_test_username())
       db = dbms.get(user, query_server)
 
       LOG.info("Setting Hive execution engine to Spark")

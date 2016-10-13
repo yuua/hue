@@ -27,6 +27,7 @@ from django.contrib.auth.models import User, Group
 
 import nose.tools
 
+
 class Client(django.test.client.Client):
   """
   Extends client to have a get_json method.

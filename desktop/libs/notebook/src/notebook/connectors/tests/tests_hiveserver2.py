@@ -37,7 +37,7 @@ from notebook.connectors.hiveserver2 import HS2Api
 from notebook.models import make_notebook, Notebook
 
 from beeswax.server import dbms
-from beeswax.test_base import BeeswaxSampleProvider, get_query_server_config, is_hive_on_spark
+from beeswax.test_base import BeeswaxSampleProvider, get_test_username, get_query_server_config, is_hive_on_spark
 
 
 LOG = logging.getLogger(__name__)
@@ -46,11 +46,11 @@ LOG = logging.getLogger(__name__)
 class TestHiveserver2Api(object):
 
   def setUp(self):
-    self.client = make_logged_in_client(username="test", groupname="test", recreate=False, is_superuser=False)
-    self.user = User.objects.get(username='test')
+    self.client = make_logged_in_client(username=get_test_username(), groupname="test", recreate=False, is_superuser=False)
+    self.user = User.objects.get(username=get_test_username())
 
     add_to_group('test')
-    grant_access("test", "test", "notebook")
+    grant_access(get_test_username(), "test", "notebook")
 
     self.db = dbms.get(self.user, get_query_server_config())
     self.api = HS2Api(self.user)
@@ -443,12 +443,12 @@ class TestHiveserver2ApiWithHadoop(BeeswaxSampleProvider):
   def setUp(self):
     self.client.post('/beeswax/install_examples')
 
-    self.user = User.objects.get(username='test')
+    self.user = User.objects.get(username=get_test_username())
     add_to_group('test')
-    grant_access("test", "test", "notebook")
+    grant_access(get_test_username(), "test", "notebook")
 
     self.db = dbms.get(self.user, get_query_server_config())
-    self.cluster.fs.do_as_user('test', self.cluster.fs.create_home_dir, '/user/test')
+    self.cluster.fs.do_as_user(get_test_username(), self.cluster.fs.create_home_dir, '/user/%s' % get_test_username())
     self.api = HS2Api(self.user)
 
     self.statement = 'SELECT description, salary FROM sample_07 WHERE (sample_07.salary > 100000) ORDER BY salary DESC LIMIT 1000'
@@ -665,7 +665,7 @@ class TestHiveserver2ApiWithHadoop(BeeswaxSampleProvider):
     statement = "SELECT DISTINCT code FROM sample_07;"
     doc = self.create_query_document(owner=self.user, statement=statement, settings=settings)
     notebook = Notebook(document=doc)
-    snippet = self.execute_and_wait(doc, snippet_idx=0, timeout=60.0, wait=2.0)
+    snippet = self.execute_and_wait(doc, snippet_idx=0, timeout=120.0, wait=2.0)
 
     response = self.client.post(reverse('notebook:fetch_result_size'),
                                 {'notebook': notebook.get_json(), 'snippet': json.dumps(snippet)})
@@ -682,7 +682,7 @@ class TestHiveserver2ApiWithHadoop(BeeswaxSampleProvider):
     statement = "SELECT app, COUNT(1) AS count FROM web_logs GROUP BY app ORDER BY count DESC;"
     doc = self.create_query_document(owner=self.user, statement=statement, settings=settings)
     notebook = Notebook(document=doc)
-    snippet = self.execute_and_wait(doc, snippet_idx=0, timeout=60.0, wait=2.0)
+    snippet = self.execute_and_wait(doc, snippet_idx=0, timeout=120.0, wait=2.0)
 
     response = self.client.post(reverse('notebook:fetch_result_size'),
                                 {'notebook': notebook.get_json(), 'snippet': json.dumps(snippet)})

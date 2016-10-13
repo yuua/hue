@@ -35,10 +35,11 @@ from useradmin.models import HuePermission, GroupPermission, group_has_permissio
 
 from beeswax.conf import LIST_PARTITIONS_LIMIT
 from beeswax.views import collapse_whitespace
-from beeswax.test_base import make_query, wait_for_query_to_finish, verify_history, get_query_server_config, fetch_query_result_data
+from beeswax.test_base import make_query, wait_for_query_to_finish, verify_history, get_query_server_config, \
+  get_test_username, fetch_query_result_data
 from beeswax.models import QueryHistory
 from beeswax.server import dbms
-from beeswax.test_base import BeeswaxSampleProvider
+from beeswax.test_base import BeeswaxSampleProvider, is_hive_with_sentry
 
 
 LOG = logging.getLogger(__name__)
@@ -65,7 +66,7 @@ class TestMetastoreWithHadoop(BeeswaxSampleProvider):
   requires_hadoop = True
 
   def setUp(self):
-    user = User.objects.get(username='test')
+    user = User.objects.get(username=get_test_username())
     self.db = dbms.get(user, get_query_server_config())
 
     add_permission("test", "test", "write", "metastore")
@@ -356,10 +357,13 @@ class TestMetastoreWithHadoop(BeeswaxSampleProvider):
 
 
   def test_has_write_access_backend(self):
-    client = make_logged_in_client(username='write_access_backend', groupname='write_access_backend', is_superuser=False)
+    if is_hive_with_sentry():
+      raise SkipTest
+
+    client = make_logged_in_client(username="write_access_backend", groupname='write_access_backend', is_superuser=False)
     grant_access("write_access_backend", "write_access_backend", "metastore")
     grant_access("write_access_backend", "write_access_backend", "beeswax")
-    user = User.objects.get(username='write_access_backend')
+    user = User.objects.get(username="write_access_backend")
 
     resp = _make_query(client, 'CREATE TABLE test_perm_1 (a int);', database=self.db_name) # Only fails if we were using Sentry and won't allow SELECT to user
     resp = wait_for_query_to_finish(client, resp, max=30.0)

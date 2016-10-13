@@ -26,6 +26,7 @@ from django.core.urlresolvers import reverse
 from desktop.lib.django_test_util import make_logged_in_client
 from desktop.lib.test_utils import add_to_group, grant_access
 from hadoop.pseudo_hdfs4 import is_live_cluster, get_db_prefix
+from libsolr.tests import get_test_username, is_solr_with_sentry, SOLR_SENTRY_SUPERUSER
 from libzookeeper.conf import ENSEMBLE
 
 from indexer.controller import get_solr_ensemble, CollectionManagerController
@@ -56,17 +57,50 @@ class TestIndexerWithSolr:
     if not is_live_cluster():
       raise SkipTest()
 
-    cls.client = make_logged_in_client(username='test', is_superuser=False)
-    cls.user = User.objects.get(username='test')
-    add_to_group('test')
-    grant_access("test", "test", "indexer")
+    cls.client = make_logged_in_client(username=get_test_username(), is_superuser=False)
+    cls.superuser_client = make_logged_in_client(username=SOLR_SENTRY_SUPERUSER, is_superuser=True)
+    cls.user = User.objects.get(username=get_test_username())
+    add_to_group(get_test_username())
+    grant_access(get_test_username(), "test", "indexer")
+    grant_access(SOLR_SENTRY_SUPERUSER, "test", "indexer")
 
     cls.db = CollectionManagerController(cls.user)
 
-    resp = cls.client.post(reverse('indexer:install_examples'))
+    resp = cls.superuser_client.post(reverse('indexer:install_examples'))
     content = json.loads(resp.content)
 
-    assert_equal(content.get('status'), 0)
+    assert_equal(content.get('status'), 0, content.get('message'))
+
+    # If Sentry is enabled, grant privileges to the test user
+    if is_solr_with_sentry():
+      add_to_group(get_test_username(), groupname='systest')
+      cls.superuser_client.post('/security/api/sentry/create_role', {
+        'role': json.dumps({
+          'name': 'ops',
+          'groups': ['systest'],
+          'privileges': [
+            {
+              'status': 'new',
+              'serverName': 'service1',
+              'component': 'solr',
+              'authorizables': [
+                {
+                  'type': 'COLLECTION',
+                  'name_': 'log_analytics_demo'
+                }
+              ],
+              'action': 'ALL',
+              'timestamp': 0,
+              'grantorPrincipal': 'solr',
+              'grantOption': False,
+              'privilegeType': 'COLLECTION',
+              'path': 'collections.log_analytics_demo',
+              'indexerPath': '/indexer/#edit/log_analytics_demo'
+            }
+          ]
+        }),
+        'component': 'SOLR'
+      })
 
   @classmethod
   def teardown_class(cls):

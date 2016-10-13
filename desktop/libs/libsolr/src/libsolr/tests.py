@@ -24,11 +24,16 @@ from nose.tools import assert_equal, assert_true
 from django.contrib.auth.models import User
 from django.core.urlresolvers import reverse
 
-from hadoop.pseudo_hdfs4 import is_live_cluster
+from desktop.lib.conf import BoundConfig
 from desktop.lib.django_test_util import make_logged_in_client
 from desktop.lib.test_utils import add_to_group, grant_access
+from hadoop.pseudo_hdfs4 import is_live_cluster
 
 from libsolr.api import SolrApi
+
+
+SOLR_SENTRY_SUPERUSER = 'solr'
+SOLR_SENTRY_USER = 'systest'
 
 
 LOG = logging.getLogger(__name__)
@@ -42,6 +47,23 @@ except:
   LOG.exception('Testing libsolr requires the search app to not be blacklisted')
 
 
+try:
+  from security.conf import SOLR_V2
+except ImportError, e:
+  SOLR_V2 = None
+
+
+def is_solr_with_sentry():
+  return SOLR_V2 is not None and type(SOLR_V2) == BoundConfig and SOLR_V2.get()
+
+
+def get_test_username():
+  if is_solr_with_sentry():
+    return SOLR_SENTRY_USER
+  else:
+    return 'test'
+
+
 class TestLibSolrWithSolr:
 
   @classmethod
@@ -50,11 +72,11 @@ class TestLibSolrWithSolr:
     if not is_live_cluster():
       raise SkipTest
 
-    cls.client = make_logged_in_client(username='test', is_superuser=False)
-    cls.user = User.objects.get(username='test')
-    add_to_group('test')
-    grant_access("test", "test", "libsolr")
-    grant_access("test", "test", "search")
+    cls.client = make_logged_in_client(username=get_test_username(), is_superuser=False)
+    cls.user = User.objects.get(username=get_test_username())
+    add_to_group(get_test_username())
+    grant_access(get_test_username(), "test", "libsolr")
+    grant_access(get_test_username(), "test", "search")
 
     cls.user.is_superuser = True
     cls.user.save()
@@ -64,6 +86,39 @@ class TestLibSolrWithSolr:
 
     cls.user.is_superuser = False
     cls.user.save()
+
+    # If Sentry is enabled, grant privileges to the test user
+    if is_solr_with_sentry():
+      add_to_group(get_test_username(), groupname='systest')
+      cls.superuser_client = make_logged_in_client(username=SOLR_SENTRY_SUPERUSER, is_superuser=True)
+      cls.superuser_client.post('/security/api/sentry/create_role', {
+        'role': json.dumps({
+          'name': 'ops',
+          'groups': ['systest'],
+          'privileges': [
+            {
+              'status': 'new',
+              'serverName': 'service1',
+              'component': 'solr',
+              'authorizables': [
+                {
+                  'type': 'COLLECTION',
+                  'name_': 'log_analytics_demo'
+                }
+              ],
+              'action': 'QUERY',
+              'timestamp': 0,
+              'grantorPrincipal': 'solr',
+              'grantOption': False,
+              'privilegeType': 'COLLECTION',
+              'path': 'collections.log_analytics_demo',
+              'indexerPath': '/indexer/#edit/log_analytics_demo'
+            }
+          ]
+        }),
+        'component': 'SOLR'
+      }
+    )
 
     assert_equal(content.get('status'), 0)
 

@@ -47,6 +47,9 @@ from liboozie.oozie_api_tests import OozieServerProvider
 from liboozie.types import WorkflowList, Workflow as OozieWorkflow, Coordinator as OozieCoordinator,\
   Bundle as OozieBundle, CoordinatorList, WorkflowAction, BundleList
 
+from beeswax.test_base import get_test_username
+from useradmin.models import get_default_user_group
+
 from oozie.conf import ENABLE_CRON_SCHEDULING, ENABLE_V2
 from oozie.models import Dataset, Workflow, Node, Kill, Link, Job, Coordinator, History,\
   find_parameters, NODE_TYPES, Bundle
@@ -389,10 +392,13 @@ class OozieBase(OozieServerProvider):
 
   def setUp(self):
     OozieServerProvider.setup_class()
-    self.c = make_logged_in_client(is_superuser=False)
-    self.user = User.objects.get(username="test")
-    grant_access("test", "test", "oozie")
-    add_to_group("test")
+    self.c = make_logged_in_client(username=get_test_username(), is_superuser=False)
+    self.c_superuser = make_logged_in_client(username='admin', password='admin', is_superuser=True)
+    self.user = User.objects.get(username=get_test_username())
+    self.superuser = User.objects.get(username='admin')
+
+    grant_access(get_test_username(), "test", "oozie")
+    add_to_group(get_test_username())
     self.cluster = OozieServerProvider.cluster
 
     self.install_examples()
@@ -408,7 +414,7 @@ class OozieBase(OozieServerProvider):
     finally:
       reset()
 
-    self.cluster.fs.do_as_user('test', self.cluster.fs.create_home_dir, '/user/test')
+    self.cluster.fs.do_as_user(get_test_username(), self.cluster.fs.create_home_dir, '/user/%s' % get_test_username())
 
     _INITIALIZED = True
 
@@ -3030,7 +3036,7 @@ class TestEditorWithOozie(OozieBase):
   def setUp(self):
     OozieBase.setUp(self)
 
-    self.c = make_logged_in_client()
+    self.c = make_logged_in_client(username=get_test_username())
     self.wf = create_workflow(self.c, self.user)
     self.setup_simple_workflow()
 
@@ -3044,7 +3050,7 @@ class TestEditorWithOozie(OozieBase):
 
   def test_create_workflow(self):
     dir_stat = self.cluster.fs.stats(self.wf.deployment_dir)
-    assert_equal('test', dir_stat.user)
+    assert_equal(get_test_username(), dir_stat.user)
     assert_equal('hue', dir_stat.group)
     assert_equal('40711', '%o' % dir_stat.mode)
 
@@ -3108,7 +3114,7 @@ class TestImportWorkflow04WithOozie(OozieBase):
   def setUp(self):
     OozieBase.setUp(self)
 
-    self.c = make_logged_in_client()
+    self.c = make_logged_in_client(username=get_test_username())
     self.wf = create_workflow(self.c, self.user)
     self.setup_simple_workflow()
 
@@ -3143,6 +3149,7 @@ class TestOozieSubmissions(OozieBase):
     wf_uuid = "c1c3cba9-edec-fb6f-a526-9f80b66fe993"
     wf = Document2.objects.get(uuid=wf_uuid)
     wf.data.replace('hive2://localhost:10000/default', _get_hiveserver2_url())
+    wf.share(user=self.superuser, name='read', groups=[get_default_user_group()])
     wf.save()
 
     # Somewhere we delete those by mistake
@@ -3166,6 +3173,7 @@ class TestOozieSubmissions(OozieBase):
   def test_submit_spark_action(self):
     wf_uuid = "2d667ab2-70f9-c2bf-0726-abe84fa7130d"
     wf = Document2.objects.get(uuid=wf_uuid)
+    wf.share(user=self.superuser, name='read', groups=[get_default_user_group()])
 
     # Somewhere we delete those by mistake
     doc = Document.objects.link(wf, owner=wf.owner, name=wf.name, description=wf.description, extra='workflow2')
@@ -3234,7 +3242,7 @@ class TestDashboardWithOozie(OozieBase):
   def setUp(self):
     super(TestDashboardWithOozie, self).setUp()
 
-    self.c = make_logged_in_client()
+    self.c = make_logged_in_client(username=get_test_username())
     self.wf = create_workflow(self.c, self.user)
     self.setup_simple_workflow()
 

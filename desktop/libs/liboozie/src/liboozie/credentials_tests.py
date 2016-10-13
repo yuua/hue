@@ -20,6 +20,9 @@ import logging
 from nose.tools import assert_equal, assert_true
 
 import beeswax.conf
+from beeswax.test_base import is_hive_with_sentry
+
+from hadoop.ssl_client_site import get_trustore_location
 
 from liboozie.credentials import Credentials
 
@@ -65,6 +68,10 @@ class TestCredentials():
       beeswax.conf.HIVE_SERVER_PORT.set_for_testing(12345),
     )
 
+    hive2_jdbc_url = 'jdbc:hive2://hue-koh-chang:12345/default'
+    if is_hive_with_sentry():
+      hive2_jdbc_url = 'jdbc:hive2://hue-koh-chang:12345/default;ssl=true;sslTrustStore=%s' % get_trustore_location()
+
     try:
       assert_equal({
           'hcat': {
@@ -76,7 +83,7 @@ class TestCredentials():
          'hive2': {
             'xml_name': 'hive2',
             'properties': [
-                ('hive2.jdbc.url', 'jdbc:hive2://hue-koh-chang:12345/default'),
+                ('hive2.jdbc.url', hive2_jdbc_url),
                 ('hive2.server.principal', 'hive')
           ]},
          'hbase': {
