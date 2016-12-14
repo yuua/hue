@@ -18,7 +18,6 @@
 
 import json
 import logging
-import Queue
 import re
 import time
 import unittest
@@ -36,6 +35,8 @@ from hadoop.conf import YARN_CLUSTERS
 from hadoop.pseudo_hdfs4 import is_live_cluster
 from hadoop.yarn import resource_manager_api, mapreduce_api, history_server_api
 from liboozie.oozie_api_tests import OozieServerProvider
+
+from beeswax.test_base import is_hive_with_sentry
 from oozie.models import Workflow
 
 from jobbrowser import models, views
@@ -115,7 +116,12 @@ class TestJobBrowserWithHadoop(unittest.TestCase, OozieServerProvider):
                                       u'form-TOTAL_FORMS': [u'1']},
                                 follow=True)
     oozie_jobid = response.context['oozie_workflow'].id
-    OozieServerProvider.wait_until_completion(oozie_jobid)
+
+    timeout = 600
+    if is_hive_with_sentry():
+      timeout = 1200
+
+    OozieServerProvider.wait_until_completion(oozie_jobid, timeout=timeout)
 
     cls.hadoop_job_id = get_hadoop_job_id(cls.oozie, oozie_jobid, 1)
     cls.hadoop_job_id_short = views.get_shorter_id(cls.hadoop_job_id)
