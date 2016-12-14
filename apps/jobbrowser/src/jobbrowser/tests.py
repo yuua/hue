@@ -36,7 +36,7 @@ from hadoop.pseudo_hdfs4 import is_live_cluster
 from hadoop.yarn import resource_manager_api, mapreduce_api, history_server_api
 from liboozie.oozie_api_tests import OozieServerProvider
 
-from beeswax.test_base import is_hive_with_sentry
+from beeswax.test_base import get_test_username, is_hive_with_sentry
 from oozie.models import Workflow
 
 from jobbrowser import models, views
@@ -88,7 +88,7 @@ class TestJobBrowserWithHadoop(unittest.TestCase, OozieServerProvider):
   def setup_class(cls):
     OozieServerProvider.setup_class()
 
-    cls.username = 'hue_jobbrowser_test'
+    cls.username = get_test_username() if is_hive_with_sentry else 'hue_jobbrowser_test'
     cls.home_dir = '/user/%s' % cls.username
     cls.cluster.fs.do_as_user(cls.username, cls.cluster.fs.create_home_dir, cls.home_dir)
 
@@ -358,9 +358,9 @@ class TestJobBrowserWithHadoop(unittest.TestCase, OozieServerProvider):
     json_resp = json.loads(response.content)
 
     assert_true('logs' in json_resp)
-    assert_true('Log Type: stdout' in json_resp['logs'][1])
-    assert_true('Log Type: stderr' in json_resp['logs'][2])
-    assert_true('Log Type: syslog' in json_resp['logs'][3])
+    assert_true('Log Type: stdout' in json_resp['logs'][1], json_resp)
+    assert_true('Log Type: stderr' in json_resp['logs'][2], json_resp)
+    assert_true('Log Type: syslog' in json_resp['logs'][3], json_resp)
 
     # Verify that syslog contains log information for a completed oozie job
     match = re.search(r"^Log Type: syslog(.+)Log Length: (?P<log_length>\d+)(.+)$", json_resp['logs'][3], re.DOTALL)
