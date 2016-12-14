@@ -71,36 +71,9 @@ class TestIndexerWithSolr:
 
     assert_equal(content.get('status'), 0, content.get('message'))
 
-    # If Sentry is enabled, grant privileges to the test user
+    # If Sentry is enabled, we need to use Solr superuser for create/drop collection privileges
     if is_solr_with_sentry():
-      add_to_group(get_test_username(), groupname='systest')
-      cls.superuser_client.post('/security/api/sentry/create_role', {
-        'role': json.dumps({
-          'name': 'ops',
-          'groups': ['systest'],
-          'privileges': [
-            {
-              'status': 'new',
-              'serverName': 'service1',
-              'component': 'solr',
-              'authorizables': [
-                {
-                  'type': 'COLLECTION',
-                  'name_': 'log_analytics_demo'
-                }
-              ],
-              'action': 'ALL',
-              'timestamp': 0,
-              'grantorPrincipal': 'solr',
-              'grantOption': False,
-              'privilegeType': 'COLLECTION',
-              'path': 'collections.log_analytics_demo',
-              'indexerPath': '/indexer/#edit/log_analytics_demo'
-            }
-          ]
-        }),
-        'component': 'SOLR'
-      })
+      cls.db = CollectionManagerController(User.objects.get(username=SOLR_SENTRY_SUPERUSER))
 
   @classmethod
   def teardown_class(cls):
