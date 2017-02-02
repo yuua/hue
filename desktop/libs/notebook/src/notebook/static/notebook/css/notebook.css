@@ -693,6 +693,11 @@ table.airy tr td {
   background: linear-gradient(to right, #dff0d8 0%, rgba(255, 255, 255, 0) 100%);
   filter: progid:DXImageTransform.Microsoft.gradient(startColorstr='#dff0d8', endColorstr='#00ffffff', GradientType=1);
 }
+.alert-warning {
+  background-color: #fcf8e3;
+  border: 1px solid #f0c36d;
+  color: #c09853;
+}
 .alert-neutral-gradient {
   border: none;
   border-left: 1px solid #DBE8F1;
@@ -706,18 +711,34 @@ table.airy tr td {
 }
 .alert-neutral {
   border: none;
-  margin-top: -3px;
   background: transparent;
-  margin-bottom: 0;
-  padding: 0;
-  padding-right: 4px;
-  display: inline-block;
 }
-.alert-empty {
-  border: none;
-  margin-bottom: 0;
-  background: transparent;
-  padding-left: 4px;
+.round-icon {
+  display: inline-block;
+  width: 16px;
+  height: 16px;
+  text-align: center;
+  line-height: 16px;
+  border-radius: 8px;
+  color: #FFF;
+  opacity: .5;
+  margin-bottom: 12px;
+}
+.round-icon.empty {
+  width: 1px;
+}
+.round-icon:hover, .round-icon.selected {
+  opacity: .8;
+}
+.round-icon.success {
+  background-color: #468847;
+}
+.round-icon.warning {
+  background-color: #f0c36d;
+  color: #FFF;
+}
+.round-icon.error {
+  background-color: #b94a48;
 }
 .icon-explanation {
   margin-left: 4px;

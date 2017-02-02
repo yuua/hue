@@ -1529,40 +1529,44 @@ from notebook.conf import ENABLE_QUERY_BUILDER, ENABLE_QUERY_SCHEDULING, ENABLE_
 
 <script type="text/html" id="code-editor-snippet-body">
   <!-- ko if: HAS_OPTIMIZER -->
-  <div class="alert alert-empty">
-    &nbsp;
-    <!-- ko if: hasComplexity() -->
-      <!-- ko if: complexity() && complexity().risk() -->
-      <div class="alert alert-neutral" data-bind="css: {'alert-success': complexity().risk().length == 0, 'alert-warning': complexity().risk().length > 0 && complexity().risk() !== 'high', 'alert-error': complexity().risk() === 'high' }">
-        <!-- ko if: complexity().risk().length == 0 -->
-        <i class="fa fa-check-circle" data-bind="toggleIconExplanation"></i> <span class="icon-explanation">${ _('No risks were detected in this query.') }</span>
-        <!-- /ko -->
-        <!-- ko if: complexity().risk().length > 0 && complexity().risk() !== 'high' -->
-        <i class="fa fa-arrow-circle-down" data-bind="toggleIconExplanation"></i> <span class="icon-explanation">${ _('This query has a low risk profile.') }</span>
-        <!-- /ko -->
-        <!-- ko if: complexity().risk() === 'high' -->
-        <i class="fa fa-exclamation-circle" data-bind="toggleIconExplanation"></i> <span class="icon-explanation"><strong data-bind="text: complexity().riskAnalysis"></strong> <span data-bind="text: complexity().riskRecommendation"></span></span>
-        <!-- /ko -->
-      </div>
-      <!-- /ko -->
-    <!-- /ko -->
-
+  <div title="${ _('Query Validator') }">
+    <div class="round-icon empty">&nbsp;</div>
     <!-- ko if: hasSuggestion() -->
-      <!-- ko with: suggestion() -->
-        <div class="alert alert-neutral" data-bind="css: {'alert-success': queryError.encounteredString().length == 0 && !parseError(), 'alert-warning': queryError.encounteredString().length > 0 && !parseError(), 'alert-error': parseError() }">
-        <!-- ko if: !parseError() && $parent.compatibilityTarget() != $parent.type() && queryError.encounteredString().length == 0 -->
-          <i class="fa fa-check" data-bind="toggleIconExplanation"></i> <span class="icon-explanation">${ _('The query is compatible with Impala.') } <a href="javascript:void(0)" data-bind="click: function() { $parent.type('impala') }">${ _('Execute it now in Impala!') }</a></span>
+        <!-- ko with: suggestion() -->
+          <!-- ko if: parseError -->
+            <div class="round-icon error" data-bind="toggleIconExplanation">
+              <i class="fa fa-exclamation"></i>
+            </div>
+            <span class="icon-explanation alert-error alert-neutral"><span data-bind="text: parseError"></span></span>
+          <!-- /ko -->
+          <!-- ko if: !parseError() && $parent.compatibilityTarget() != $parent.type() -->
+            <!-- ko if: queryError.encounteredString().length == 0 -->
+              <div class="round-icon success" data-bind="toggleIconExplanation">
+                <i class="fa fa-check"></i>
+              </div>
+              <span class="icon-explanation alert-success alert-neutral">${ _('The query is compatible with Impala.') } <a href="javascript:void(0)" data-bind="click: function() { $parent.type('impala') }">${ _('Execute it now in Impala!') }</a></span>
+            <!-- /ko -->
+            <!-- ko ifnot: queryError.encounteredString().length == 0 -->
+              <div class="round-icon warning" data-bind="toggleIconExplanation">
+                <i class="fa fa-exclamation"></i>
+              </div>
+              <span class="icon-explanation alert-warning alert-neutral">${ _('This query is not compatible with Impala.') }</span>
+            <!-- /ko -->
+          <!-- /ko -->
         <!-- /ko -->
-        <!-- ko if: !parseError() && $parent.compatibilityTarget() == $parent.type() -->
-          <i class="fa fa-check" data-bind="toggleIconExplanation"></i> <span class="icon-explanation">${ _('The query has no errors.') }</span>
-        <!-- /ko -->
-        <!-- ko if: parseError -->
-          <i class="fa fa-exclamation" data-bind="toggleIconExplanation"></i> <span class="icon-explanation"><span data-bind="text: parseError"></span></span>
-        <!-- /ko -->
-        <!-- ko if: queryError.encounteredString -->
-          <i class="fa fa-exclamation" data-bind="toggleIconExplanation"></i> <span class="icon-explanation">${ _('This query is not compatible with Impala.') }</span>
-        <!-- /ko -->
+    <!-- /ko -->
+    <!-- ko if: hasComplexity() && hasSuggestion() && compatibilityTarget() === type() && suggestion() && !suggestion().parseError() -->
+      <!-- ko if: complexity() && complexity().risk() && (complexity().risk().length === 0 || complexity().risk() === 'low') -->
+        <div class="round-icon success" data-bind="toggleIconExplanation">
+          <i class="fa fa-check"></i>
         </div>
+        <span class="icon-explanation alert-success alert-neutral">${ _('The query can be run with no problems') }</span>
+      <!-- /ko -->
+      <!-- ko if: complexity() && complexity().risk() && complexity().risk() === 'high' -->
+        <div class="round-icon error" data-bind="toggleIconExplanation">
+          <i class="fa fa-exclamation"></i>
+        </div>
+        <span class="icon-explanation alert-error alert-neutral"><strong data-bind="text: complexity().riskAnalysis"></strong> <span data-bind="text: complexity().riskRecommendation"></span></span>
       <!-- /ko -->
     <!-- /ko -->
   </div>

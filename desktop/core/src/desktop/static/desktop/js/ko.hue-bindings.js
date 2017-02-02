@@ -579,9 +579,11 @@
       $explanation.addClass('hide');
       $(element).addClass('pointer').on('click', function(){
         if ($explanation.hasClass('hide')) {
+          $(this).addClass('selected');
           $explanation.removeClass('hide');
         }
         else {
+          $(this).removeClass('selected');
           $explanation.addClass('hide');
         }
       });
@@ -3202,6 +3204,10 @@
       });
 
       snippet.errors.subscribe(function (newErrors) {
+        processErrorsAndWarnings('error', newErrors);
+      });
+
+      snippet.aceErrors.subscribe(function (newErrors) {
         processErrorsAndWarnings('error', newErrors);
       });
 
