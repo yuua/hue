@@ -59,6 +59,7 @@
     var IS_HUE_4 = true;
   </script>
 
+  <script src="${ static('desktop/ext/js/page.js') }"></script>
   <script src="${ static('desktop/js/hue4.utils.js') }"></script>
 
 </head>
@@ -345,6 +346,7 @@ ${ hueIcons.symbols() }
       <div id="embeddable_useradmin_permissions" class="embeddable"></div>
       <div id="embeddable_useradmin_configurations" class="embeddable"></div>
       <div id="embeddable_useradmin_newuser" class="embeddable"></div>
+      <div id="embeddable_useradmin_edituser" class="embeddable"></div>
       <div id="embeddable_useradmin_addldap" class="embeddable"></div>
       <div id="embeddable_hbase" class="embeddable"></div>
       <div id="embeddable_security_hive" class="embeddable"></div>
@@ -536,6 +538,7 @@ ${ assist.assistPanel() }
         useradmin_permissions: '/useradmin/permissions?is_embeddable=true',
         useradmin_configurations: '/useradmin/configurations?is_embeddable=true',
         useradmin_newuser: '/useradmin/users/new?is_embeddable=true',
+        useradmin_edituser: '/useradmin/users/edit/:user?is_embeddable=true',
         useradmin_addldap: 'useradmin/users/add_ldap_users?is_embeddable=true',
         hbase: '/hbase/?is_embeddable=true',
         security_hive: '/security/hive?is_embeddable=true',
@@ -548,13 +551,14 @@ ${ assist.assistPanel() }
         dump_config: '/desktop/dump_config?is_embeddable=true',
       };
 
-      var SKIP_CACHE = ['fileviewer', 'useradmin_users', 'useradmin_groups', 'useradmin_permissions', 'useradmin_configurations', 'useradmin_newuser', 'useradmin_addldap'];
+      var SKIP_CACHE = ['fileviewer', 'useradmin_users', 'useradmin_groups', 'useradmin_permissions', 'useradmin_configurations', 'useradmin_newuser', 'useradmin_addldap', 'useradmin_edituser'];
 
       var OnePageViewModel = function () {
         var self = this;
 
         self.embeddable_cache = {};
         self.currentApp = ko.observable();
+        self.currentContextParams = ko.observable(null);
         self.isLoadingEmbeddable = ko.observable(false);
         self.extraEmbeddableURLParams = ko.observable('');
 
@@ -625,6 +629,17 @@ ${ assist.assistPanel() }
             });
           })
         });
+
+        page('/useradmin/users/edit/:user', userEdit);
+        page('*', notFound);
+        page();
+        function userEdit(ctx) {
+          self.currentContextParams(ctx.params);
+          self.currentApp('useradmin_edituser');
+        }
+        function notFound(ctx) {
+          console.error('Route not found', ctx);
+        }
 
         huePubSub.subscribe('open.link', function (href) {
           if (href.startsWith('/notebook/editor')){
@@ -757,8 +772,16 @@ ${ assist.assistPanel() }
           }
           self.isLoadingEmbeddable(true);
           if (typeof self.embeddable_cache[newVal] === 'undefined') {
+            var baseURL = EMBEDDABLE_PAGE_URLS[newVal];
+            if (self.currentContextParams() !== null){
+              var route = new page.Route(baseURL);
+              route.keys.forEach(function(key){
+                baseURL = baseURL.replace(':' + key.name, self.currentContextParams()[key.name]);
+              });
+              self.currentContextParams(null);
+            }
             $.ajax({
-              url: EMBEDDABLE_PAGE_URLS[newVal] + self.extraEmbeddableURLParams(),
+              url: baseURL + self.extraEmbeddableURLParams(),
               beforeSend: function (xhr) {
                 xhr.setRequestHeader('X-Requested-With', 'Hue');
               },
