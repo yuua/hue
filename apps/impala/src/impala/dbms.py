@@ -16,25 +16,30 @@
 # limitations under the License.
 
 import logging
+import random
 
+from desktop.lib.exceptions_renderable import PopupException
 from desktop.lib.i18n import smart_str
+from desktop.lib.rest.http_client import RestException
 
 from beeswax.design import hql_query
 from beeswax.models import QUERY_TYPES
 from beeswax.server import dbms
 from beeswax.server.dbms import HiveServer2Dbms, QueryServerException, QueryServerTimeoutException,\
-  get_query_server_config as beeswax_query_server_config
+  get_query_server_config as beeswax_query_server_config, impala_ha
 
 from impala import conf
+from impala.impala_flags import get_webserver_certificate_file
+from impala.server import ImpalaDaemonApi, ImpalaDaemonApiException
 
 
 LOG = logging.getLogger(__name__)
 
 
-def get_query_server_config():
+def get_query_server_config(host=None):
   query_server = {
         'server_name': 'impala',
-        'server_host': conf.SERVER_HOST.get(),
+        'server_host': host or conf.SERVER_HOST.get(),
         'server_port': conf.SERVER_PORT.get(),
         'principal': conf.IMPALA_PRINCIPAL.get(),
         'impersonation_enabled': conf.IMPERSONATION_ENABLED.get(),
@@ -50,6 +55,43 @@ def get_query_server_config():
   LOG.debug("Query Server: %s" % debug_query_server)
 
   return query_server
+
+
+def get_next_impala(current_host=None):
+  """
+  Return the query server configuration for the next available impala instance as retreived from the list of active
+  coordinators returned by /backends
+
+  If current_host is set, it will exempt it from the list of available candidates.
+  """
+  next_impala_config = None
+  api = ImpalaDaemonApi(_get_impalad_url())
+
+  try:
+    candidates = api.get_backends()
+  except (RestException, ImpalaDaemonApiException), e:
+    raise PopupException(_("Failed to get backends from Impala Daemon server: %s") % e)
+
+  if current_host:
+    LOG.info("Current impala host is: %s, exempting from the list of available impala coordinators." % current_host)
+    candidates = [b for b in candidates if b['is_coordinator'] and b['address'].split(':')[0] != current_host]
+    LOG.info("Candidate impala coordinators are: %s" % ','.join([b['address'] for b in candidates]))
+
+  if len(candidates) > 0:
+    # TODO: Add logic to enhance candidate list with num open connections and sort, for now, randomize
+    next_impalad = random.choice(candidates)
+    host = next_impalad['address'].split(':')[0]
+    LOG.info("Returning the next available impala host: %s:%d" % (host, conf.SERVER_PORT.get()))
+    next_impala_config = get_query_server_config(host=host)
+  else:
+    LOG.info("No impala hosts are available.")
+
+  return next_impala_config
+
+
+def _get_impalad_url():
+  scheme = 'https://' if get_webserver_certificate_file() else 'http://'
+  return '%(scheme)s%(host)s:%(port)s' % {'scheme': scheme, 'host': conf.SERVER_HOST.get(), 'port': '25000'}
 
 
 class ImpalaDbms(HiveServer2Dbms):
@@ -87,6 +129,7 @@ class ImpalaDbms(HiveServer2Dbms):
     return 'SELECT histogram(%s) FROM %s' % (select_clause, from_clause)
 
 
+  @impala_ha
   def invalidate(self, database=None, flush_all=False):
     handle = None
     try:
@@ -111,6 +154,7 @@ class ImpalaDbms(HiveServer2Dbms):
         self.close(handle)
 
 
+  @impala_ha
   def refresh_table(self, database, table):
     handle = None
     try:
@@ -125,6 +169,7 @@ class ImpalaDbms(HiveServer2Dbms):
         self.close(handle)
 
 
+  @impala_ha
   def get_histogram(self, database, table, column, nested=None):
     """
     Returns the results of an Impala SELECT histogram() FROM query for a given column or nested type.
@@ -151,19 +196,23 @@ class ImpalaDbms(HiveServer2Dbms):
     return results
 
 
+  @impala_ha
   def get_exec_summary(self, query_handle, session_handle):
     return self.client._client.get_exec_summary(query_handle, session_handle)
 
 
+  @impala_ha
   def get_runtime_profile(self, query_handle, session_handle):
     return self.client._client.get_runtime_profile(query_handle, session_handle)
 
 
+  @impala_ha
   def _get_beeswax_tables(self, database):
     beeswax_query_server = dbms.get(user=self.client.user, query_server=beeswax_query_server_config(name='beeswax'))
     return beeswax_query_server.get_tables(database=database)
 
 
+  @impala_ha
   def _get_different_tables(self, database):
     beeswax_tables = self._get_beeswax_tables(database)
     impala_tables = self.get_tables(database=database)

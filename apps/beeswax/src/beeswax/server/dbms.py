@@ -21,10 +21,14 @@ import time
 
 from django.core.urlresolvers import reverse
 from django.utils.encoding import force_unicode
+from django.utils.functional import wraps
 from django.utils.translation import ugettext as _
 
 from desktop.lib.django_util import format_preserving_redirect
+from desktop.lib.exceptions import StructuredThriftTransportException
+from desktop.lib.exceptions_renderable import PopupException
 from desktop.lib.parameterization import substitute_variables
+
 from filebrowser.views import location_to_url
 
 from beeswax import hive_site
@@ -41,14 +45,44 @@ LOG = logging.getLogger(__name__)
 DBMS_CACHE = {}
 DBMS_CACHE_LOCK = threading.Lock()
 
-def get(user, query_server=None):
+
+def impala_ha(func):
+  """
+  Reset the cached Impala server for the current user and attempt to get the next available one
+  """
+  def decorate(dbms, *args, **kwargs):
+    try:
+      return func(dbms, *args, **kwargs)
+    except StructuredThriftTransportException, e:
+      from impala.dbms import get_next_impala
+      # TODO: add in logic to inspect exception and ensure that we need to failover to next impala
+      LOG.info('Current impala host, %s, is not available. Attempting to get next available host.' %
+               dbms.client.query_server['server_host'])
+      next_impala_config = get_next_impala(current_host=dbms.client.query_server['server_host'])
+      if next_impala_config is not None:
+        dbms.client = get(dbms.client.user, query_server=next_impala_config, force_reset=True)
+      else:
+        raise PopupException(_('Failed to find an available Impala server.'))
+      return func(dbms, *args, **kwargs)
+    except Exception, e:
+      raise e
+  return wraps(func)(decorate)
+
+
+def get(user, query_server=None, force_reset=False):
   global DBMS_CACHE
   global DBMS_CACHE_LOCK
+
+  DBMS_CACHE_LOCK.acquire()
 
   if query_server is None:
     query_server = get_query_server_config()
 
-  DBMS_CACHE_LOCK.acquire()
+  if force_reset:
+    # Reset the cached server for the user
+    if user.username in DBMS_CACHE and query_server['server_name'] in DBMS_CACHE[user.username]:
+      DBMS_CACHE[user.username].pop(query_server['server_name'])
+
   try:
     DBMS_CACHE.setdefault(user.username, {})
 
@@ -71,8 +105,8 @@ def get(user, query_server=None):
 
 def get_query_server_config(name='beeswax', server=None):
   if name == 'impala':
-    from impala.dbms import get_query_server_config as impala_query_server_config
-    query_server = impala_query_server_config()
+    from impala.dbms import get_next_impala
+    query_server = get_next_impala()
   else:
     kerberos_principal = hive_site.get_hiveserver2_kerberos_principal(HIVE_SERVER_HOST.get())
 
@@ -142,6 +176,7 @@ class HiveServer2Dbms(object):
     return cleaned
 
 
+  @impala_ha
   def get_databases(self, database_names='*'):
     if database_names != '*':
       database_names = self.to_matching_wildcard(database_names)
@@ -154,10 +189,12 @@ class HiveServer2Dbms(object):
     return databases
 
 
+  @impala_ha
   def get_database(self, database):
     return self.client.get_database(database)
 
 
+  @impala_ha
   def alter_database(self, database, properties):
     hql = 'ALTER database `%s` SET DBPROPERTIES (' % database
     hql += ', '.join(["'%s'='%s'" % (k, v) for k, v in properties.items()])
@@ -176,6 +213,7 @@ class HiveServer2Dbms(object):
     return self.client.get_database(database)
 
 
+  @impala_ha
   def get_tables_meta(self, database='default', table_names='*', table_types=None):
     database = database.lower() # Impala is case sensitive
 
@@ -189,6 +227,7 @@ class HiveServer2Dbms(object):
     return tables
 
 
+  @impala_ha
   def get_tables(self, database='default', table_names='*', table_types=None):
     database = database.lower() # Impala is case sensitive
 
@@ -202,6 +241,7 @@ class HiveServer2Dbms(object):
     return tables
 
 
+  @impala_ha
   def get_table(self, database, table_name):
     try:
       return self.client.get_table(database, table_name)
@@ -217,6 +257,7 @@ class HiveServer2Dbms(object):
         raise e
 
 
+  @impala_ha
   def alter_table(self, database, table_name, new_table_name=None, comment=None, tblproperties=None):
     hql = 'ALTER TABLE `%s`.`%s`' % (database, table_name)
 
@@ -241,6 +282,7 @@ class HiveServer2Dbms(object):
     return self.client.get_table(database, table_name)
 
 
+  @impala_ha
   def get_column(self, database, table_name, column_name):
     table = self.get_table(database, table_name)
     for col in table.cols:
@@ -249,6 +291,7 @@ class HiveServer2Dbms(object):
     return None
 
 
+  @impala_ha
   def alter_column(self, database, table_name, column_name, new_column_name, column_type, comment=None,
                    partition_spec=None, cascade=False):
     hql = 'ALTER TABLE `%s`.`%s`' % (database, table_name)
@@ -277,10 +320,12 @@ class HiveServer2Dbms(object):
     return self.get_column(database, table_name, new_column_name)
 
 
+  @impala_ha
   def execute_query(self, query, design):
     return self.execute_and_watch(query, design=design)
 
 
+  @impala_ha
   def select_star_from(self, database, table, limit=1000):
     if table.partition_keys:  # Filter on max number of partitions for partitioned tables
       hql = self._get_sample_partition_query(database, table, limit=limit) # Currently need a limit
@@ -289,6 +334,7 @@ class HiveServer2Dbms(object):
     return self.execute_statement(hql)
 
 
+  @impala_ha
   def get_select_star_query(self, database, table, limit=1000):
     if table.partition_keys:  # Filter on max number of partitions for partitioned tables
       hql = self._get_sample_partition_query(database, table, limit=limit) # Currently need a limit
@@ -297,6 +343,7 @@ class HiveServer2Dbms(object):
     return hql
 
 
+  @impala_ha
   def execute_statement(self, hql):
     if self.server_name == 'impala':
       query = hql_query(hql, QUERY_TYPES[1])
@@ -305,6 +352,7 @@ class HiveServer2Dbms(object):
     return self.execute_and_watch(query)
 
 
+  @impala_ha
   def fetch(self, query_handle, start_over=False, rows=None):
     no_start_over_support = [config_variable for config_variable in self.get_default_configuration(False)
                                              if config_variable.key == 'support_start_over'
@@ -315,14 +363,17 @@ class HiveServer2Dbms(object):
     return self.client.fetch(query_handle, start_over, rows)
 
 
+  @impala_ha
   def close_operation(self, query_handle):
     return self.client.close_operation(query_handle)
 
 
+  @impala_ha
   def open_session(self, user):
     return self.client.open_session(user)
 
 
+  @impala_ha
   def close_session(self, session):
     resp = self.client.close_session(session)
 
@@ -337,6 +388,7 @@ class HiveServer2Dbms(object):
     return session
 
 
+  @impala_ha
   def cancel_operation(self, query_handle):
     resp = self.client.cancel_operation(query_handle)
     if self.client.query_server['server_name'] == 'impala':
@@ -344,6 +396,7 @@ class HiveServer2Dbms(object):
     return resp
 
 
+  @impala_ha
   def get_sample(self, database, table, column=None, nested=None, limit=100):
     result = None
     hql = None
@@ -374,6 +427,7 @@ class HiveServer2Dbms(object):
     return result
 
 
+  @impala_ha
   def _get_sample_partition_query(self, database, table, column='*', limit=100):
     max_parts = QUERY_PARTITIONS_LIMIT.get()
     partitions = self.get_partitions(database, table, partition_spec=None, max_parts=max_parts)
@@ -390,6 +444,7 @@ class HiveServer2Dbms(object):
       {'column': column, 'database': database, 'table': table.name, 'partition_clause': partition_clause, 'limit': limit}
 
 
+  @impala_ha
   def analyze_table(self, database, table):
     if self.server_name == 'impala':
       hql = 'COMPUTE STATS `%(database)s`.`%(table)s`' % {'database': database, 'table': table}
@@ -406,6 +461,7 @@ class HiveServer2Dbms(object):
     return self.execute_statement(hql)
 
 
+  @impala_ha
   def analyze_table_columns(self, database, table):
     if self.server_name == 'impala':
       hql = 'COMPUTE STATS `%(database)s`.`%(table)s`' % {'database': database, 'table': table}
@@ -419,6 +475,7 @@ class HiveServer2Dbms(object):
     return self.execute_statement(hql)
 
 
+  @impala_ha
   def get_table_stats(self, database, table):
     stats = []
 
@@ -439,6 +496,7 @@ class HiveServer2Dbms(object):
     return stats
 
 
+  @impala_ha
   def get_table_columns_stats(self, database, table, column):
     if self.server_name == 'impala':
       hql = 'SHOW COLUMN STATS `%(database)s`.`%(table)s`' % {'database': database, 'table': table}
@@ -480,6 +538,7 @@ class HiveServer2Dbms(object):
       return []
 
 
+  @impala_ha
   def get_table_properties(self, database, table, property_name=None):
     hql = 'SHOW TBLPROPERTIES `%s`.`%s`' % (database, table)
     if property_name:
@@ -494,6 +553,7 @@ class HiveServer2Dbms(object):
       return result
 
 
+  @impala_ha
   def get_table_describe(self, database, table):
     hql = 'DESCRIBE `%s`.`%s`' % (database, table)
 
@@ -506,6 +566,7 @@ class HiveServer2Dbms(object):
       return result
 
 
+  @impala_ha
   def get_top_terms(self, database, table, column, limit=30, prefix=None):
     limit = min(limit, 100)
     prefix_match = ''
@@ -527,6 +588,7 @@ class HiveServer2Dbms(object):
       return []
 
 
+  @impala_ha
   def drop_table(self, database, table):
     if table.is_view:
       hql = "DROP VIEW `%s`.`%s`" % (database, table.name,)
@@ -536,6 +598,7 @@ class HiveServer2Dbms(object):
     return self.execute_statement(hql)
 
 
+  @impala_ha
   def load_data(self, database, table, form_data, design, generate_ddl_only=False):
     hql = "LOAD DATA INPATH"
     hql += " '%(path)s'" % form_data
@@ -559,6 +622,7 @@ class HiveServer2Dbms(object):
       return self.execute_query(query, design)
 
 
+  @impala_ha
   def drop_tables(self, database, tables, design, skip_trash=False, generate_ddl_only=False):
     hql = []
 
@@ -581,10 +645,12 @@ class HiveServer2Dbms(object):
       return self.execute_query(query, design)
 
 
+  @impala_ha
   def drop_database(self, database):
     return self.execute_statement("DROP DATABASE `%s`" % database)
 
 
+  @impala_ha
   def drop_databases(self, databases, design, generate_ddl_only=False):
     hql = []
 
@@ -600,6 +666,8 @@ class HiveServer2Dbms(object):
 
       return self.execute_query(query, design)
 
+
+  @impala_ha
   def _get_and_validate_select_query(self, design, query_history):
     query = design.get_query_statement(query_history.statement_number)
     if not query.strip().lower().startswith('select'):
@@ -616,6 +684,7 @@ class HiveServer2Dbms(object):
     return self.execute_statement(hql)
 
 
+  @impala_ha
   def create_table_as_a_select(self, request, query_history, target_database, target_table, result_meta):
     design = query_history.design.get_design()
     database = design.query['database']
@@ -679,23 +748,28 @@ class HiveServer2Dbms(object):
     return query_history
 
 
+  @impala_ha
   def use(self, database):
     query = hql_query('USE `%s`' % database)
     return self.client.use(query)
 
 
+  @impala_ha
   def get_log(self, query_handle, start_over=True):
     return self.client.get_log(query_handle, start_over)
 
 
+  @impala_ha
   def get_state(self, handle):
     return self.client.get_state(handle)
 
 
+  @impala_ha
   def get_operation_status(self, handle):
     return self.client.get_operation_status(handle)
 
 
+  @impala_ha
   def execute_and_wait(self, query, timeout_sec=30.0, sleep_interval=0.5):
     """
     Run query and check status until it finishes or timeouts.
@@ -727,6 +801,7 @@ class HiveServer2Dbms(object):
     raise QueryServerTimeoutException(message=msg)
 
 
+  @impala_ha
   def execute_next_statement(self, query_history, hql_query):
     if query_history.is_success() or query_history.is_expired():
       # We need to go to the next statement only if the previous one passed
@@ -747,6 +822,7 @@ class HiveServer2Dbms(object):
     return self.execute_and_watch(query, query_history=query_history)
 
 
+  @impala_ha
   def execute_and_watch(self, query, design=None, query_history=None):
     """
     Run query and return a QueryHistory object in order to see its progress on a Web page.
@@ -799,14 +875,17 @@ class HiveServer2Dbms(object):
     return query_history
 
 
+  @impala_ha
   def get_results_metadata(self, handle):
     return self.client.get_results_metadata(handle)
 
 
+  @impala_ha
   def close(self, handle):
     return self.client.close(handle)
 
 
+  @impala_ha
   def get_partitions(self, db_name, table, partition_spec=None, max_parts=None, reverse_sort=True):
     if max_parts is None or max_parts > LIST_PARTITIONS_LIMIT.get():
       max_parts = LIST_PARTITIONS_LIMIT.get()
@@ -814,6 +893,7 @@ class HiveServer2Dbms(object):
     return self.client.get_partitions(db_name, table.name, partition_spec, max_parts=max_parts, reverse_sort=reverse_sort)
 
 
+  @impala_ha
   def get_partition(self, db_name, table_name, partition_spec, generate_ddl_only=False):
     table = self.get_table(db_name, table_name)
     partitions = self.get_partitions(db_name, table, partition_spec=partition_spec)
@@ -832,10 +912,12 @@ class HiveServer2Dbms(object):
       return self.execute_statement(hql)
 
 
+  @impala_ha
   def describe_partition(self, db_name, table_name, partition_spec):
     return self.client.get_table(db_name, table_name, partition_spec=partition_spec)
 
 
+  @impala_ha
   def drop_partitions(self, db_name, table_name, partition_specs, design):
     hql = []
 
@@ -849,6 +931,7 @@ class HiveServer2Dbms(object):
     return self.execute_query(query, design)
 
 
+  @impala_ha
   def get_indexes(self, db_name, table_name):
     hql = 'SHOW FORMATTED INDEXES ON `%(table)s` IN `%(database)s`' % {'table': table_name, 'database': db_name}
 
@@ -862,10 +945,12 @@ class HiveServer2Dbms(object):
     return result
 
 
+  @impala_ha
   def get_configuration(self):
     return self.client.get_configuration()
 
 
+  @impala_ha
   def get_functions(self, prefix=None):
     filter = '"%s.*"' % prefix if prefix else '".*"'
     hql = 'SHOW FUNCTIONS %s' % filter
@@ -880,14 +965,17 @@ class HiveServer2Dbms(object):
     return result
 
 
+  @impala_ha
   def explain(self, query):
     return self.client.explain(query)
 
 
+  @impala_ha
   def getStatus(self):
     return self.client.getStatus()
 
 
+  @impala_ha
   def get_default_configuration(self, include_hadoop):
     return self.client.get_default_configuration(include_hadoop)
 
