@@ -832,7 +832,7 @@ DROP TABLE IF EXISTS `%(table)s`;
 
 
   def _get_impala_query_profile(self, server_url, query_id):
-    api = get_impalad_api(user=self.user, url=server_url)
+    api = get_impalad_api(url=server_url)
 
     try:
       query_profile = api.get_query_profile(query_id)

@@ -34,7 +34,7 @@ API_CACHE = None
 API_CACHE_LOCK = threading.Lock()
 
 
-def get_api(user, url):
+def get_api(url):
   global  API_CACHE
   if API_CACHE is None:
     API_CACHE_LOCK.acquire()
@@ -43,7 +43,6 @@ def get_api(user, url):
         API_CACHE = ImpalaDaemonApi(url)
     finally:
       API_CACHE_LOCK.release()
-  API_CACHE.set_user(user)
   return API_CACHE
 
 
