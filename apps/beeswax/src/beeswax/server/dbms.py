@@ -47,11 +47,10 @@ def get(user, query_server=None):
   global DBMS_CACHE
   global DBMS_CACHE_LOCK
 
-  DBMS_CACHE_LOCK.acquire()
-
   if query_server is None:
     query_server = get_query_server_config()
 
+  DBMS_CACHE_LOCK.acquire()
   try:
     DBMS_CACHE.setdefault(user.username, {})
 
@@ -66,9 +65,6 @@ def get(user, query_server=None):
       else:
         from beeswax.server.hive_server2_lib import HiveServerClient
         DBMS_CACHE[user.username][query_server['server_name']] = HiveServer2Dbms(HiveServerClientCompatible(HiveServerClient(query_server, user)), QueryHistory.SERVER_TYPE[1][0])
-
-    if query_server['server_name'] == 'impala':
-      LOG.info("********** User: %s and ImpalaD: %s **********" % (user.username, query_server['server_name']['server_host']))
     return DBMS_CACHE[user.username][query_server['server_name']]
   finally:
     DBMS_CACHE_LOCK.release()

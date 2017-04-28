@@ -46,7 +46,7 @@ def get_query_server_config():
   """
   query_server = {
         'server_name': 'impala',
-        'server_host':  conf.SERVER_HOST.get(),
+        'server_host': get_next_impala() or conf.SERVER_HOST.get(),
         'server_port': conf.SERVER_PORT.get(),
         'principal': conf.IMPALA_PRINCIPAL.get(),
         'impersonation_enabled': conf.IMPERSONATION_ENABLED.get(),
@@ -59,7 +59,7 @@ def get_query_server_config():
 
   debug_query_server = query_server.copy()
   debug_query_server['auth_password_used'] = bool(debug_query_server.pop('auth_password'))
-  LOG.info("***** Query Server: %s" % debug_query_server)
+  LOG.debug("Query Server: %s" % debug_query_server)
 
   return query_server
 
