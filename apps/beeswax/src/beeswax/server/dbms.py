@@ -76,8 +76,8 @@ def get(user, query_server=None):
 
 def get_query_server_config(name='beeswax', server=None):
   if name == 'impala':
-    from impala.dbms import get_query_server_config
-    query_server = get_query_server_config()
+    from impala.dbms import get_query_server_config as impala_query_server_config
+    query_server = impala_query_server_config()
   else:
     kerberos_principal = hive_site.get_hiveserver2_kerberos_principal(HIVE_SERVER_HOST.get())
 
