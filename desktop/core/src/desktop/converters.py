@@ -26,7 +26,7 @@ from desktop.conf import IS_HUE_4
 from desktop.lib.exceptions_renderable import PopupException
 from desktop.models import Document, DocumentPermission, DocumentTag, Document2, Directory, Document2Permission
 from notebook.api import _historify
-from notebook.models import import_saved_beeswax_query, import_saved_pig_script
+from notebook.models import import_saved_beeswax_query, import_saved_pig_script, import_saved_mapreduce_job
 
 
 LOG = logging.getLogger(__name__)
@@ -116,14 +116,30 @@ class DocumentConverter(object):
       for doc in docs:
         try:
           if doc.content_object:
-            data = doc.content_object.data_dict
-            data.update({'content_type': doc.content_type.model, 'object_id': doc.object_id})
-            doc2 = self._create_doc2(
-                document=doc,
-                doctype='link-workflow',
-                description=doc.description,
-                data=json.dumps(data)
-            )
+            node = doc.content_object.start.get_child('to')
+            if IS_HUE_4.get():
+              notebook = None
+              if node.node_type == 'mapreduce':
+                notebook = import_saved_mapreduce_job(doc.content_object)
+
+              if notebook:
+                data = notebook.get_data()
+                doc2 = self._create_doc2(
+                  document=doc,
+                  doctype=data['type'],
+                  name=data['name'],
+                  description=data['description'],
+                  data=notebook.get_json()
+                )
+            else:
+              data = doc.content_object.data_dict
+              data.update({'content_type': doc.content_type.model, 'object_id': doc.object_id})
+              doc2 = self._create_doc2(
+                  document=doc,
+                  doctype='link-workflow',
+                  description=doc.description,
+                  data=json.dumps(data)
+              )
             self.imported_doc_count += 1
         except Exception, e:
           self.failed_doc_ids.append(doc.id)
