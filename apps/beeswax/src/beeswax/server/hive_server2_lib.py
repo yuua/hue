@@ -750,6 +750,11 @@ class HiveServerClient:
 
 
   def get_database(self, database):
+    if self.query_server['server_name'] == 'impala':
+      raise NotImplementedError(_("Impala has not implemented the 'DESCRIBE DATABASE' command: %(issue_ref)s") % {
+        'issue_ref': "https://issues.cloudera.org/browse/IMPALA-2196"
+      })
+
     query = 'DESCRIBE DATABASE EXTENDED `%s`' % (database)
 
     (desc_results, desc_schema), operation_handle = self.execute_statement(query, max_rows=5000, orientation=TFetchOrientation.FETCH_NEXT)
@@ -885,7 +890,7 @@ class HiveServerClient:
 
     req = TExecuteStatementReq(statement=statement.encode('utf-8'), confOverlay=configuration)
     res = self.call(self._client.ExecuteStatement, req)
-
+    self.client.close
     return self.fetch_result(res.operationHandle, max_rows=max_rows, orientation=orientation), res.operationHandle
 
 
@@ -895,7 +900,7 @@ class HiveServerClient:
 
     req = TExecuteStatementReq(statement=statement.encode('utf-8'), confOverlay=confOverlay, runAsync=True)
     (res, session) = self.call_return_result_and_session(self._client.ExecuteStatement, req, with_multiple_session=with_multiple_session)
-
+    self.client.close
     return HiveServerQueryHandle(secret=res.operationHandle.operationId.secret,
                                  guid=res.operationHandle.operationId.guid,
                                  operation_type=res.operationHandle.operationType,
